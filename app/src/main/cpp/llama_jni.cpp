@@ -17,6 +17,18 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// llama.cpp replaced `bool use_mmap` with `enum llama_load_mode load_mode` in newer releases.
+// These overloads compile against either layout (SFINAE picks whichever member exists).
+template <typename P>
+auto set_mmap(P& p, bool on, int) -> decltype((void) p.load_mode, void()) {
+    using Mode = decltype(p.load_mode);
+    p.load_mode = static_cast<Mode>(on ? 1 : 0);   // 1 = LLAMA_LOAD_MODE_MMAP, 0 = LLAMA_LOAD_MODE_NONE
+}
+template <typename P>
+auto set_mmap(P& p, bool on, long) -> decltype((void) p.use_mmap, void()) {
+    p.use_mmap = on;
+}
+
 namespace {
 
 struct Engine {
@@ -48,7 +60,7 @@ Java_org_offlineresearch_app_LlamaEngine_nativeLoad(JNIEnv* env, jobject, jstrin
     }
     const char* path = env->GetStringUTFChars(jpath, nullptr);
     llama_model_params mp = llama_model_default_params();
-    mp.use_mmap     = use_mmap;   // weights are paged in from flash on demand -> huge MoE models fit
+    set_mmap(mp, use_mmap, 0);   // weights are paged in from flash on demand -> huge MoE models fit
     mp.n_gpu_layers = 0;
     llama_model* model = llama_model_load_from_file(path, mp);
     env->ReleaseStringUTFChars(jpath, path);
