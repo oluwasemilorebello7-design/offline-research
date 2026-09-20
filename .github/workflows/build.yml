@@ -1,0 +1,45 @@
+name: build-apk
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      llama_cpp_tag:
+        description: "llama.cpp release tag to build against (blank = latest release)"
+        required: false
+        default: ""
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Laptop-free path: if you did not add llama.cpp as a submodule, fetch it here.
+      - name: Fetch llama.cpp (if not vendored)
+        run: |
+          DIR=app/src/main/cpp/llama.cpp
+          if [ ! -f "$DIR/CMakeLists.txt" ]; then
+            TAG="${{ inputs.llama_cpp_tag }}"
+            if [ -z "$TAG" ]; then
+              TAG=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | python3 -c "import sys,json;print(json.load(sys.stdin)['tag_name'])")
+            fi
+            echo "Building against llama.cpp $TAG"
+            rm -rf "$DIR"
+            git clone --depth 1 --branch "$TAG" https://github.com/ggml-org/llama.cpp "$DIR"
+            echo "$TAG" > llama_cpp_tag.txt
+          fi
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.9" }
+      - run: gradle assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-research-debug-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            llama_cpp_tag.txt
+          if-no-files-found: warn
